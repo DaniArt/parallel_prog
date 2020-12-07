@@ -4,14 +4,14 @@
 #include <iostream>
 using namespace std;
 
-// Функция выделения памяти под вектор
+// Р¤СѓРЅРєС†РёСЏ РІС‹РґРµР»РµРЅРёСЏ РїР°РјСЏС‚Рё РїРѕРґ РІРµРєС‚РѕСЂ
 double* malloc_array(int n)
 {
 	double* a = new double[n];
 	return a;
 }
 
-// Функция освобождения памяти 
+// Р¤СѓРЅРєС†РёСЏ РѕСЃРІРѕР±РѕР¶РґРµРЅРёСЏ РїР°РјСЏС‚Рё 
 int free_array(double*a, int n)
 {
 	delete[] a;
@@ -19,9 +19,17 @@ int free_array(double*a, int n)
 }
 double scalmult(int n, double* a, double* b)
 {
-	// Определения числа доступных процессов и размера подзадач
+	// РћРїСЂРµРґРµР»РµРЅРёСЏ С‡РёСЃР»Р° РґРѕСЃС‚СѓРїРЅС‹С… РїСЂРѕС†РµСЃСЃРѕРІ Рё СЂР°Р·РјРµСЂР° РїРѕРґР·Р°РґР°С‡
+	int nn = 100;
+	int n1 = nn / 4;
 
-	// Вычисление скалярного произведения
+	double* a1 = malloc_array(n1);
+	double* b1 = malloc_array(n1);
+
+	MPI_Scatter(&a[0], n1, MPI_INT, &a1[0], n1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Scatter(&b[0], n1, MPI_INT, &b1[0], n1, MPI_INT, 0, MPI_COMM_WORLD);
+
+	// Р’С‹С‡РёСЃР»РµРЅРёРµ СЃРєР°Р»СЏСЂРЅРѕРіРѕ РїСЂРѕРёР·РІРµРґРµРЅРёСЏ
 	double sum = 0;
 	for (int i = 0; i < n; i++)
 	{
@@ -34,22 +42,22 @@ double scalmult(int n, double* a, double* b)
 int main(int argc, char **argv)
 {
 
-	// Иницилизация MPI
+	// РРЅРёС†РёР»РёР·Р°С†РёСЏ MPI
 	int rank, size;
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	// Определение размера задачи и подзадач
+	// РћРїСЂРµРґРµР»РµРЅРёРµ СЂР°Р·РјРµСЂР° Р·Р°РґР°С‡Рё Рё РїРѕРґР·Р°РґР°С‡
 	int n = 100;
 	int n1 = n / size;
 	if (rank < n - n1 * size) n1++;
 
-	// Выделение памяти 
+	// Р’С‹РґРµР»РµРЅРёРµ РїР°РјСЏС‚Рё 
 	double *a = malloc_array(n1);
 	double *b = malloc_array(n1);
 
-	// Заполнение векторов
+	// Р—Р°РїРѕР»РЅРµРЅРёРµ РІРµРєС‚РѕСЂРѕРІ
 	for (int i = 0; i < n1; i++)
 	{
 		a[i] = (double) rand() / RAND_MAX;
@@ -57,12 +65,16 @@ int main(int argc, char **argv)
 	}
 
 	double sc = scalmult(n, a, b);
+	double sc1;
+
+	MPI_Gather(&sc, n1, MPI_INT, &sc1, n1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	if (rank == 0) {
 		cout << "The Program is RUN on " << size << " CPU" << endl;
+		cout << "Result: " << sc1 << endl;
 	}
 
-	// Вызов функции из библиотеки, которая проводит проверку корректности реализации алгоритма и его ускорения
+	// Р’С‹Р·РѕРІ С„СѓРЅРєС†РёРё РёР· Р±РёР±Р»РёРѕС‚РµРєРё, РєРѕС‚РѕСЂР°СЏ РїСЂРѕРІРѕРґРёС‚ РїСЂРѕРІРµСЂРєСѓ РєРѕСЂСЂРµРєС‚РЅРѕСЃС‚Рё СЂРµР°Р»РёР·Р°С†РёРё Р°Р»РіРѕСЂРёС‚РјР° Рё РµРіРѕ СѓСЃРєРѕСЂРµРЅРёСЏ
 	submit(scalmult);
 
 	free_array(a, n);
@@ -70,4 +82,3 @@ int main(int argc, char **argv)
 	MPI_Finalize();
 	return 0;
 }
-
