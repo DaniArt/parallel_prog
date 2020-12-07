@@ -35,8 +35,14 @@ double scalmult(int n, double* a, double* b)
 	{
 		sum += a[i] * b[i];
 	}
-	sum = sqrt(sum);
-	return sum;
+	double globalsum = sum;
+	MPI_Reduce(&sum, &globalsum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	globalsum = sqrt(globalsum);
+
+	free_array(a1, nn);
+	free_array(b1, nn);
+
+	return globalsum;
 }
 
 int main(int argc, char **argv)
