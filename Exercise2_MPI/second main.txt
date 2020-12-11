@@ -1,0 +1,69 @@
+int multmv(int n, double* A, double* x, double* y)
+
+{
+
+// Определения числа доступных процессов
+
+int rank, size;
+
+MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+// Распределение подзадач
+
+int const m = n / size;
+
+double* local_A = malloc_array(n * n);
+
+double* local_y = malloc_array(n);
+
+// Начальное распределение данных
+
+MPI_Scatter(A, n * m, MPI_DOUBLE, local_A, n * m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+MPI_Bcast(x, n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+// Умножение матрицы на вектор
+
+for (int k = 0; k < 100; k++)
+
+{
+
+for (int i = 0; i < n; i++)
+
+{
+
+y[i] = 0;
+
+for (int j = 0; j < n; j++)
+
+{
+
+y[i] += A[i * n + j] * x[j];
+
+}
+
+}
+
+for (int i = 0; i < n; i++)
+
+{
+
+x[i] = y[i];
+
+}
+
+}
+
+// Сбор решения
+
+MPI_Gather(&y[0], m, MPI_DOUBLE, &local_y[0], m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+free_array(local_A);
+
+free_array(local_y);
+
+return 0;
+
+}
