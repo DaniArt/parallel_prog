@@ -1,391 +1,158 @@
-/****
- * 2D-Matrix-Matrix Multiplication using MPI
- * Task-1
- ****/
-
+#include <mpi.h>
 #include <stdio.h>
-#include<stdlib.h>
-#include<mpi.h>
+#include <math.h>
 
-#define SIZE 1024			/* SIZE should be a multiple of number of nodes*/
-#define DEBUG 0			/* Set it to 1 - To view detailed Output */
-#define MASTER 1
-#define SLAVE 2
 
-MPI_Status status;
-
-static double a[SIZE][SIZE];
-static double b[SIZE][SIZE];
-static double c[SIZE][SIZE];
-static double b_transpose[SIZE][SIZE];
-
-static void initialization()
+void init_matrix(double* a, int row, int col)
 {
-	int i,j; 
-	for(i = 0;i<SIZE;i++)
+	int i;
+
+	for(i=0; i<row*col; i++)
 	{
-		for(j = 0;j<SIZE;j++)
-		{
-			a[i][j] = 1.0;
-            if (i >= SIZE/2) a[i][j] = 2.0;
-            b[i][j] = 1.0;
-            if (j >= SIZE/2) b[i][j] = 2.0;
-			
-			c[i][j] = 0.0; /*Initially*/
-			b_transpose[j][i] = b[i][j]; /*Since it is easy to send rows than columns */
-		}
+		a[i] = 0.0;
 	}
 }
 
-static void output()
+void multiply_matrix(double* a, double* b, double* c,
+ int n,int y,int m)
 {
-	int i, j;
-	printf("\n Final Output is:\n");
-	for(i = 0;i<SIZE;i++)
-	{
-		for(j = 0;j<SIZE;j++)
-		{
-			printf("%7.2f", c[i][j]);
-		}
-		printf("\n");
+	double tmp;
+	int k,i,j;
+	for(k = 0; k < y; k++) {
+    for(i = 0; i < n; i++) {
+        tmp = a[i*y+k];
+        for(j = 0; j < m; j++) {
+            c[i*n+j] = c[i*n+j] + tmp * b[k*m+j];
+        }
+    }
 	}
+
 }
 
-int main(int argc, char **argv)
+void print_matrix(double* m, int row, int col)
 {
-	int prank, np;
-	int cols; 																				/* number of columns per worker */
-	int rows; 																				/* number of rows per worker */
-	int mtype; 																				/* message type */
-	int dest, src, offset1, offset2, new_offset1;
-	double start_t, end_t;
-	int i, j ,k;
-	
-	MPI_Init(&argc,&argv);											
-	MPI_Comm_size(MPI_COMM_WORLD, &np);
-    MPI_Comm_rank(MPI_COMM_WORLD, &prank);
-	
-	if(np==1)                                                        /* Number of nodes is 1 */ 
-	{
-		initialization();
-		printf("\n SIZE = %d, number of  nodes = %d\n",SIZE,np);
-		start_t = MPI_Wtime();
-		
-		for (i = 0; i < SIZE; i++)
-			for (j = 0; j < SIZE; j++) {
-				c[i][j] = 0.0;
-				for (k = 0; k < SIZE; k++)
-					c[i][j] = c[i][j] + a[i][k] * b[k][j];
-			}
-		end_t = MPI_Wtime();
-		
-		if(DEBUG)
-			output();
-			
-			printf("\n Execution time on %d nodes is %f\n", np, end_t-start_t);
+  int i, j = 0;
+  for (i=0; i<row; i++) {
+	printf("\n\t| ");
+	for (j=0; j<col; j++)
+	  printf("%2f ", m[i*col+j]);
+	printf("|");
+  }
+  printf("\n");
+}
+
+
+int main(int argc, char *argv[])
+{
+	double* a;
+	double* b;
+	double* c;
+
+  double* a_all;
+  double* b_all;
+  double* c_all;
+
+  double start_time, end_time;
+  int my_rank, num_procs, n;
+  int myn;
+  int i,j;
+
+  int my_start_row,my_start_col;
+	/* Initialize MPI environment */ 
+	MPI_Init(&argc, &argv);
+	/* Get rank of each MPI process */
+	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+	/* Get overall number of processes */
+	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+
+	{ /* Unnamed validation block */
+
+	if ( argc < 2 ) {
+	if (!my_rank)
+	   printf("Usage: mpirun -n <num_procs> %s <n>\n", argv[0]);
+	MPI_Finalize();
+	exit(0);
 	}
 
-	if(np==2)  /* Number of nodes is 2*/
-	{
-		if(prank == 0)
-		{
-			initialization();
-			printf("\n SIZE = %d, number of  nodes = %d\n",SIZE,np);
-			start_t = MPI_Wtime();
-			mtype = MASTER;
-			rows = (SIZE/np)*2;
-			offset1 = rows;
-			cols = SIZE/2;
-			offset2 = cols;
-			new_offset1 = 0;
-			
-			for(dest = 1;dest <np;dest++)
-			{
-				MPI_Send(&new_offset1, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&rows, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&offset2, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&a[0][0], SIZE*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&b_transpose[offset2][0], offset2*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD);
-			}
-			/*Master calculation part*/
-			for(i = 0; i<rows;i++)
-			{
-				for(j = 0; j<cols;j++)
-				{
-					for(k = 0;k<SIZE; k++)
-					{
-						c[i][j] = c[i][j] + a[i][k] * b_transpose[j][k];
-					}
-				}
-			}
-			
-			/*Collect results from slave*/
-			mtype = SLAVE;
-			for(src = 1;src<np;src++)
-			{
-				MPI_Recv(&new_offset1, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&rows, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&offset2, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-		        for(i = new_offset1;i<rows;i++)
-				{
-					MPI_Recv(&c[i][offset2], cols, MPI_DOUBLE, src, mtype, MPI_COMM_WORLD, &status);
+		  /* Read n from command line argument */
+		  n = atoi(argv[1]);
 
-				}					
-			
-			}
-			
-			end_t = MPI_Wtime();
-			
-			if(DEBUG)
-				output();
-			
-			printf("\n Execution time on %d nodes is %f\n", np, end_t-start_t);			
+		  if ( n < num_procs ) {
+		if ( !my_rank )
+		   printf("n should be greated than the number of processes\n");
+		MPI_Finalize();
+		exit(0);
+		  }
+
+		  if ( n % num_procs ) {
+		MPI_Finalize();
+		if ( !my_rank )
+		   printf("n should divide the number of processes\n");
+		exit(0);  
+		  }
+
+	} /* End of the validation block */
+	  myn = n/sqrt(num_procs);
+
+	  a = malloc(myn*myn*sizeof(double));
+	  a_all =malloc(n*n*sizeof(double));
+	  b = malloc(myn*myn*sizeof(double));
+	  b_all =malloc(n*n*sizeof(double));
+	  c = malloc(myn*myn*sizeof(double));
+	  MPI_Barrier(MPI_COMM_WORLD);
+
+	  my_start_row = my_rank*myn/n;
+	  my_start_col = (my_rank*myn)%n;
+	  printf("myrank %d startrow %d startcol%d myn%d\n", my_rank,my_start_row,my_start_col,myn);
+
+	  //init_matrix a
+	  for(i=0; i<myn*myn; i++)
+		{
+			a[i] = 1;
+			b[i] = 1;
 		}
-		if(prank >0)
-		{
-			mtype = MASTER;
-			MPI_Recv(&new_offset1, 1, MPI_INT, 0, mtype,MPI_COMM_WORLD, &status);
-			MPI_Recv(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&offset2, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&a[0][0], SIZE*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&b_transpose[offset2][0], offset2*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-			
-			/*Slaves calculation part*/
-			
-			for(i = new_offset1;i<rows;i++)
-			{
-				for(j = offset2;j<SIZE;j++)
-				{
-					for(k = 0;k<SIZE;k++)
-					{
-						c[i][j] = c[i][j] + a[i][k] * b_transpose[j][k];
-					}
-				}
-			}
-			if(DEBUG){
-					printf("\n Rank is %d Calculated matrix part is:\n",prank);
-					for(i = new_offset1;i<rows;i++)
-						for(j=offset2;j<SIZE;j++)
-							printf("%7.2f",c[i][j]);
-						printf("\n");
-				}
-			
-			mtype = SLAVE;
-			MPI_Send(&new_offset1, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&offset2, 1,MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			for(i = new_offset1;i<rows;i++)
-			{
-				MPI_Send(&c[i][offset2], offset2, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD);
-			}
-		}
-		
-	}
-	
-	if(np>=4)  /*Number of nodes greater than or equal to 4*/
+
+
+	MPI_Barrier(MPI_COMM_WORLD);
+	//gather the whole row for a, whole colom for b
+	for(i=0;i<num_procs;i++)
 	{
-		if (prank == 0) 										/*Master Job */
-		{
-			initialization(); 
-			printf("\nSIZE = %d, number of nodes = %d\n", SIZE, np);
-			start_t = MPI_Wtime();
-			mtype = MASTER;
-			rows = (SIZE/np)*2;																	/* Number of rows in matrix A for each node*/
-			offset1 = rows;
-			cols = SIZE/2; 																		/* Number of cols in matrix B which is same as number of rows in B-Transpose for each node*/
-			offset2 = cols;
-			new_offset1 = 0;
-		
-			for(dest = 1; dest <np/2; dest++) /*Sending data for first set of slaves*/
-			{
-				MPI_Send(&offset1, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&rows, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&cols, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&a[offset1][0], rows*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD); 	  /* STart element in A matrix */
-				MPI_Send(&b_transpose[0][0], cols*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD); /* number of cols in matrix b is equal to number of rows in b_transpose */
-				offset1 = offset1 + rows;
-			}
-				
-			for(dest = np/2;dest<np;dest++) /*Sending data for second set of slaves*/
-			{
-				MPI_Send(&new_offset1, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&rows, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&offset2, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&cols, 1, MPI_INT, dest, mtype, MPI_COMM_WORLD);
-				MPI_Send(&a[new_offset1][0], rows*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD); /* Starting point in A matrix */ 
-				MPI_Send(&b_transpose[offset2][0], cols*SIZE, MPI_DOUBLE, dest, mtype, MPI_COMM_WORLD); /* number of cols in matrix b is equal to number of rows in b_transpose */
-				new_offset1 = new_offset1 + rows;
-			}
-			
-			/* Master Calculation Part */
+		MPI_Gather(a, myn*myn, MPI_DOUBLE, a_all, myn*myn, MPI_DOUBLE, i, MPI_COMM_WORLD);
+		MPI_Gather(b, myn*myn, MPI_DOUBLE, b_all, myn*myn, MPI_DOUBLE, i, MPI_COMM_WORLD);
+	}
+	
 
-			for(i = 0; i<rows; i++)
-			{
-				for(j = 0; j< cols; j++)
-				{
-					for(k = 0; k <SIZE; k++)
-					{
-						c[i][j] = c[i][j] + a[i][k] * b_transpose[j][k];
-					}
-				}
-			}
-			
-						
-			/* collect part-1 results from slaves */
-
-			mtype = SLAVE;
-			for(src = 1; src < np/2; src++)
-			{
-				MPI_Recv(&offset1, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&rows, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&cols, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				for(i = offset1;i<offset1+rows;i++)
-				{
-					MPI_Recv(&c[i][0], cols, MPI_DOUBLE, src, mtype, MPI_COMM_WORLD, &status);
-				}
-				
-				if(DEBUG){
-				printf("\n Received this part from process %d \n",src);
-				for(i = offset1;i<offset1+rows;i++)
-					for(j=0;j<cols;j++)
-						printf("%7.2f",c[i][j]);
-					printf("\n");
-				}
-			} 
-			if(DEBUG){
-				printf("\n Rank 0 calculated\n");
-				for(i = 0; i<rows; i++)
-					for(j = 0; j< cols; j++)
-						printf("%7.2f",c[i][j]);
-					printf("\n");
-			}
-			mtype = SLAVE;
-			for(src = np/2;src<np;src++)
-			{
-				MPI_Recv(&new_offset1, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&rows, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&offset2, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				MPI_Recv(&cols, 1, MPI_INT, src, mtype, MPI_COMM_WORLD, &status);
-				for(i = new_offset1;i<new_offset1+rows;i++)
-				{
-					MPI_Recv(&c[i][offset2], cols, MPI_DOUBLE, src, mtype, MPI_COMM_WORLD, &status);
-				}
-				if(DEBUG){
-					printf("\n Received this part from process %d \n",src);
-					for(i = new_offset1;i<rows;i++)
-						for(j=offset2;j<SIZE;j++)
-							printf("%7.2f",c[i][j]);
-						printf("\n");
-				}
-			}
-			 
-			if(DEBUG){
-				printf("\n Rank 0 calculated\n");
-				for(i = 0; i<rows; i++)
-					for(j = 0; j< cols; j++)
-						printf("%7.2f",c[i][j]);
-					printf("\n");
-			}
-		
-		end_t = MPI_Wtime();
-
-		if(DEBUG)
-		output(); 
-
-		printf("\n Execution time on %d nodes is: %f ", np, end_t-start_t);	
+	//print_matrix(a,myn,myn);
+	
+	{
+		print_matrix(a_all,n,n);
+		print_matrix(b_all,n,n);
 	}
 
-		else if(prank>0 && prank<np/2) /* First set of slaves */ 
-		{																												/* Receive data from Master */
-																													
-			mtype = MASTER;
-			MPI_Recv(&offset1, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&cols, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&a[offset1][0], rows*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&b_transpose[0][0], cols*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-	
-			/* slaves calculation part-1 */
+	//print_matrix(&a_all[(my_rank/myn)*n],myn,n);
+	//print_matrix(&b_all[(my_rank*myn)*n],n,myn);
 
-			for(i = offset1; i<offset1+rows;i++)
-			{
-				for(j=0;j< cols;j++)
-				{
-					for(k=0;k< SIZE;k++)
-					{
-						c[i][j] = c[i][j] + a[i][k] * b_transpose[j][k];
-					}
-				}
-			}
+	MPI_Barrier(MPI_COMM_WORLD);
+
+		print_matrix(&a_all[(my_rank*myn/n)/n],myn,n);
+		print_matrix(&b_all[(my_rank*myn/n)/n],n,myn);
+		multiply_matrix(&a_all[(my_rank*myn/n)/n], &b_all[(my_rank*myn/n)/n], c, myn,n,myn);
+
+		print_matrix(c,myn,myn);
+
+
+
+	if(my_rank == 0)
+	{
+		c_all = malloc(n*n*sizeof(double));
 		
-			if(DEBUG){
-				printf("\n Rank is %d Calculated matrix part is:\n",prank);
-				for(i = offset1;i<offset1+rows;i++)
-					for(j=0;j<cols;j++)
-						printf("%7.2f",c[i][j]);
-					printf("\n");
-			}
-			/*Now sending  part-1 of the results back to the master */
-			
-			mtype = SLAVE;
-			MPI_Send(&offset1, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&cols, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			for(i = offset1;i<offset1+rows;i++)
-			{
-				MPI_Send(&c[i][0], cols, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD);
-			}
-			}
-	
-		else if(prank>=np/2) /*Second set of slaves */ 
-		{
-			/*Receiving data from master*/ 
-	
-			mtype = MASTER;
-			MPI_Recv(&new_offset1, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&offset2, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&cols, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&a[new_offset1][0], rows*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-			MPI_Recv(&b_transpose[offset2][0], cols*SIZE, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD, &status);
-			
-			/* Slaves calculations part-2 */ 
-		
-			for(i=new_offset1;i<new_offset1 + rows;i++)
-			{
-				for(j=offset2;j<SIZE;j++)
-				{
-					for(k = 0; k<SIZE;k++)
-					{
-						c[i][j] = c[i][j] + a[i][k] * b_transpose[j][k];
-					}
-				}
-			}
-			
-			if(DEBUG){
-					printf("\n Rank is %d Calculated matrix part is:\n",prank);
-					for(i = new_offset1;i<rows;i++)
-						for(j=offset2;j<SIZE;j++)
-							printf("%7.2f",c[i][j]);
-						printf("\n");
-				}
-			
-			
-			/* Sending Part-2 of the results back to the master */ 
-	
-			mtype = SLAVE;
-			MPI_Send(&new_offset1, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&rows, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&offset2, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			MPI_Send(&cols, 1, MPI_INT, 0, mtype, MPI_COMM_WORLD);
-			for(i = new_offset1;i<new_offset1+rows;i++)
-			{
-				MPI_Send(&c[i][offset2], cols, MPI_DOUBLE, 0, mtype, MPI_COMM_WORLD);
-			}
-		}
 	}
+	MPI_Gather(c, myn*myn, MPI_DOUBLE, c_all, myn*myn, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	
+	if(my_rank == 0)
+	print_matrix(c_all,n,n);
 
-MPI_Finalize();
-return 0;
+	MPI_Finalize();
+	exit(0);
 
 }
