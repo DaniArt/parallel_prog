@@ -4,68 +4,107 @@
 #include <iostream>
 using namespace std;
 
-// Функция выделения памяти под вектор
+// Г”ГіГ­ГЄГ¶ГЁГї ГўГ»Г¤ГҐГ«ГҐГ­ГЁГї ГЇГ Г¬ГїГІГЁ ГЇГ®Г¤ ГўГҐГЄГІГ®Г°
 double* malloc_array(int n)
 {
 	double* a = new double[n];
 	return a;
 }
 
-// Функция освобождения памяти 
+// Г”ГіГ­ГЄГ¶ГЁГї Г®Г±ГўГ®ГЎГ®Г¦Г¤ГҐГ­ГЁГї ГЇГ Г¬ГїГІГЁ 
 int free_array(double*a, int n)
 {
 	delete[] a;
 	return 0;
 }
-int multmv(int n, double* A_glob, double* x, double* y)
-{
-	/*for (int i = 0; i < N; i++)
-    {   R[i] = 0;
-        for (int j = 0; j < N; j++)
-        R[i] += M[i][j] * V[j];           процедура умножения матрицы M nxn на вектор V с результатом в векторе R
-    } */
+int multmv(int n, double* A, double* x, double* y) 
 
-	// Умножение матрицы на вектор
-	for (int k = 0; k < 100; k++)
-	{
-		for (int i = 0; i < n; i++)
-		{
-			y[i] = 0;
-			for (int j = 0; j < n; j++)
-			{
-				y[i] += A_glob[i*n + j] * x[j];
-			}
-		}
-		for (int i = 0; i < n; i++)
-		{
-			x[i] = y[i];
-		}
-	}
+{ 
 
-	// Сбор решения
 
-	return 0;
+	int rank, size; 
+
+ 
+
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size); 
+
+
+	int const m = n / size; 
+
+	double* local_A = malloc_array(n * n); 
+
+	double* local_y = malloc_array(n); 
+
+
+	MPI_Scatter(A, n * m, MPI_DOUBLE, local_A, n * m, MPI_DOUBLE, 0, MPI_COMM_WORLD); 
+
+	MPI_Bcast(x, n, MPI_DOUBLE, 0, MPI_COMM_WORLD); 
+
+
+	for (int k = 0; k < 100; k++) 
+
+	{ 
+
+		for (int i = 0; i < n; i++) 
+
+		{ 
+
+			y[i] = 0; 
+
+			for (int j = 0; j < n; j++) 
+
+			{ 
+
+				y[i] += A[i * n + j] * x[j]; 
+
+			} 
+
+		} 
+
+		for (int i = 0; i < n; i++) 
+
+		{ 
+
+			x[i] = y[i]; 
+
+		} 
+
+	} 
+
+
+	MPI_Gather(&y[0], m, MPI_DOUBLE, &local_y[0], m, MPI_DOUBLE, 0, MPI_COMM_WORLD); 
+
+ 
+
+	free_array(local_A); 
+
+	free_array(local_y); 
+
+	return 0; 
+
 }
 
 int main(int argc, char **argv)
 {
-	// Иницилизация MPI
+	// Г€Г­ГЁГ¶ГЁГ«ГЁГ§Г Г¶ГЁГї MPI
 	int rank, size;
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-	// Определение размера задачи и подзадач
+	// ГЋГЇГ°ГҐГ¤ГҐГ«ГҐГ­ГЁГҐ Г°Г Г§Г¬ГҐГ°Г  Г§Г Г¤Г Г·ГЁ ГЁ ГЇГ®Г¤Г§Г Г¤Г Г·
 	int n = 840;
 	int n1 = n / size;
 	//if (rank < n - n1 * size) n1++;
 
-	// Выделение памяти 
+	// Г‚Г»Г¤ГҐГ«ГҐГ­ГЁГҐ ГЇГ Г¬ГїГІГЁ 
 	double *A_glob = malloc_array(n*n);
 	double *x = malloc_array(n);
 	double *y = malloc_array(n);
 
-	// Заполнение матрицы А и вектора х
+	// Г‡Г ГЇГ®Г«Г­ГҐГ­ГЁГҐ Г¬Г ГІГ°ГЁГ¶Г» ГЂ ГЁ ГўГҐГЄГІГ®Г°Г  Гµ
 	if (rank == 0)
 	{
 		for (int i = 0; i < n; i++)
@@ -87,8 +126,7 @@ int main(int argc, char **argv)
 		cout << "The Program is RUN on " << size << " CPU" << endl;
 		cout << " y[0] = " << y[0] << "!" << endl;
 	}
-
-	// Вызов функции из библиотеки, которая проводит проверку корректности реализации алгоритма и его ускорения
+	
 	submit(multmv);
 
 	free_array(A_glob, n*n);
